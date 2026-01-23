@@ -12,8 +12,8 @@ from bitbucket_mcp.config import BitbucketConfig
 def config() -> BitbucketConfig:
     """Create test configuration."""
     return BitbucketConfig(
-        username="testuser",
-        app_password="testpassword",
+        email="test@example.com",
+        api_token="testtoken",
         workspace="testworkspace",
     )
 

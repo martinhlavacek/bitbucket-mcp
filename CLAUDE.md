@@ -61,10 +61,12 @@ fastmcp run src/bitbucket_mcp/server.py:mcp --transport http --port 8000
 ## Required Environment Variables
 
 ```bash
-export BITBUCKET_USERNAME="your-username"
-export BITBUCKET_APP_PASSWORD="your-app-password"
+export BITBUCKET_EMAIL="your-email@example.com"
+export BITBUCKET_API_TOKEN="your-api-token"
 export BITBUCKET_WORKSPACE="optional-default-workspace"
 ```
+
+> Legacy `BITBUCKET_USERNAME` + `BITBUCKET_APP_PASSWORD` also supported for backward compatibility.
 
 ## Project Structure
 

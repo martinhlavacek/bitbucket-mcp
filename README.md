@@ -26,20 +26,25 @@ pip install -e .
 
 ## Configuration
 
-### Bitbucket App Password
+### Bitbucket API Token
 
-1. Go to [Bitbucket App Passwords](https://bitbucket.org/account/settings/app-passwords/)
-2. Create a new App Password with required permissions:
+> **Note:** App Passwords were deprecated in September 2025. Use API tokens instead.
+
+1. Go to [Atlassian Account Settings](https://id.atlassian.com/manage-profile/security/api-tokens)
+2. Click **Create API token with scopes**
+3. Select **Bitbucket** as the application
+4. Add required scopes:
    - `repository:read`
    - `repository:write`
    - `pullrequest:read`
    - `pullrequest:write`
+5. Copy the token (it's only shown once!)
 
 ### Environment Variables
 
 ```bash
-export BITBUCKET_USERNAME="your-username"
-export BITBUCKET_APP_PASSWORD="your-app-password"
+export BITBUCKET_EMAIL="your-email@example.com"
+export BITBUCKET_API_TOKEN="your-api-token"
 export BITBUCKET_WORKSPACE="your-workspace"  # optional default workspace
 ```
 
@@ -56,8 +61,8 @@ Add to your Claude Code MCP configuration:
       "command": "python",
       "args": ["-m", "bitbucket_mcp"],
       "env": {
-        "BITBUCKET_USERNAME": "your-username",
-        "BITBUCKET_APP_PASSWORD": "your-app-password"
+        "BITBUCKET_EMAIL": "your-email@example.com",
+        "BITBUCKET_API_TOKEN": "your-api-token"
       }
     }
   }

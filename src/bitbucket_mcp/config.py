@@ -8,29 +8,38 @@ from dataclasses import dataclass
 class BitbucketConfig:
     """Configuration for Bitbucket API access."""
 
-    username: str
-    app_password: str
+    email: str
+    api_token: str
     workspace: str | None = None
     base_url: str = "https://api.bitbucket.org/2.0"
 
     @classmethod
     def from_env(cls) -> "BitbucketConfig":
-        """Create configuration from environment variables."""
-        username = os.environ.get("BITBUCKET_USERNAME")
-        app_password = os.environ.get("BITBUCKET_APP_PASSWORD")
+        """Create configuration from environment variables.
 
-        if not username or not app_password:
+        Supports both new API token format and legacy app password format:
+        - New: BITBUCKET_EMAIL + BITBUCKET_API_TOKEN
+        - Legacy: BITBUCKET_USERNAME + BITBUCKET_APP_PASSWORD
+        """
+        # Try new format first, fall back to legacy
+        email = os.environ.get("BITBUCKET_EMAIL") or os.environ.get("BITBUCKET_USERNAME")
+        api_token = os.environ.get("BITBUCKET_API_TOKEN") or os.environ.get(
+            "BITBUCKET_APP_PASSWORD"
+        )
+
+        if not email or not api_token:
             raise ValueError(
-                "BITBUCKET_USERNAME and BITBUCKET_APP_PASSWORD environment variables are required"
+                "BITBUCKET_EMAIL and BITBUCKET_API_TOKEN environment variables are required. "
+                "Legacy BITBUCKET_USERNAME/BITBUCKET_APP_PASSWORD also supported."
             )
 
         return cls(
-            username=username,
-            app_password=app_password,
+            email=email,
+            api_token=api_token,
             workspace=os.environ.get("BITBUCKET_WORKSPACE"),
         )
 
     @property
     def auth(self) -> tuple[str, str]:
-        """Return HTTP basic auth tuple."""
-        return (self.username, self.app_password)
+        """Return HTTP basic auth tuple (email, api_token)."""
+        return (self.email, self.api_token)
