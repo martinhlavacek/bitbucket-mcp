@@ -45,8 +45,12 @@ pip install -e .
 ```bash
 export BITBUCKET_EMAIL="your-email@example.com"
 export BITBUCKET_API_TOKEN="your-api-token"
-export BITBUCKET_WORKSPACE="your-workspace"  # optional default workspace
+export BITBUCKET_WORKSPACE="your-workspace"  # optional, can be passed per-request
 ```
+
+> **Finding your workspace:** The workspace is the first part of your Bitbucket repository URL:
+> `https://bitbucket.org/{workspace}/{repo}` - for example, if your repo URL is
+> `https://bitbucket.org/acme-corp/my-project`, your workspace is `acme-corp`.
 
 ## Usage
 
@@ -58,6 +62,7 @@ export BITBUCKET_WORKSPACE="your-workspace"  # optional default workspace
 claude mcp add --transport stdio \
   --env BITBUCKET_EMAIL=your-email@example.com \
   --env BITBUCKET_API_TOKEN=your-api-token \
+  --env BITBUCKET_WORKSPACE=your-workspace \
   bitbucket -- python -m bitbucket_mcp
 ```
 
@@ -71,7 +76,8 @@ claude mcp add --transport stdio \
       "args": ["-m", "bitbucket_mcp"],
       "env": {
         "BITBUCKET_EMAIL": "your-email@example.com",
-        "BITBUCKET_API_TOKEN": "your-api-token"
+        "BITBUCKET_API_TOKEN": "your-api-token",
+        "BITBUCKET_WORKSPACE": "your-workspace"
       }
     }
   }
@@ -93,6 +99,7 @@ docker run -d \
   -p 8000:8000 \
   -e BITBUCKET_EMAIL=your-email@example.com \
   -e BITBUCKET_API_TOKEN=your-api-token \
+  -e BITBUCKET_WORKSPACE=your-workspace \
   hlavaceklab/bitbucket-mcp:latest
 ```
 
@@ -139,6 +146,7 @@ docker build -t bitbucket-mcp .
 docker run -d -p 8000:8000 \
   -e BITBUCKET_EMAIL=your-email@example.com \
   -e BITBUCKET_API_TOKEN=your-api-token \
+  -e BITBUCKET_WORKSPACE=your-workspace \
   bitbucket-mcp
 ```
 
