@@ -94,12 +94,68 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get previous tag
+        id: prev_tag
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          echo "tag=$PREV_TAG" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog from conventional commits
+        id: changelog
+        run: |
+          if [ -n "${{ steps.prev_tag.outputs.tag }}" ]; then
+            RANGE="${{ steps.prev_tag.outputs.tag }}..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+
+          echo "## What's Changed" > changelog.md
+          echo "" >> changelog.md
+
+          # Features
+          FEATURES=$(git log $RANGE --pretty=format:"- %s" --grep="^feat" 2>/dev/null || true)
+          if [ -n "$FEATURES" ]; then
+            echo "### Features" >> changelog.md
+            echo "$FEATURES" >> changelog.md
+            echo "" >> changelog.md
+          fi
+
+          # Bug fixes
+          FIXES=$(git log $RANGE --pretty=format:"- %s" --grep="^fix" 2>/dev/null || true)
+          if [ -n "$FIXES" ]; then
+            echo "### Bug Fixes" >> changelog.md
+            echo "$FIXES" >> changelog.md
+            echo "" >> changelog.md
+          fi
+
+          # Documentation
+          DOCS=$(git log $RANGE --pretty=format:"- %s" --grep="^docs" 2>/dev/null || true)
+          if [ -n "$DOCS" ]; then
+            echo "### Documentation" >> changelog.md
+            echo "$DOCS" >> changelog.md
+            echo "" >> changelog.md
+          fi
+
+          # Other changes (chore, refactor, test, ci)
+          OTHER=$(git log $RANGE --pretty=format:"- %s" --grep="^\(chore\|refactor\|test\|ci\)" 2>/dev/null || true)
+          if [ -n "$OTHER" ]; then
+            echo "### Other Changes" >> changelog.md
+            echo "$OTHER" >> changelog.md
+            echo "" >> changelog.md
+          fi
+
+          cat changelog.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: changelog.md
+          append_body: true
           body: |
+
             ## Docker
 
             ```bash
@@ -112,6 +168,7 @@ jobs:
             docker run -d -p 8000:8000 \
               -e BITBUCKET_EMAIL=you@example.com \
               -e BITBUCKET_API_TOKEN=your-token \
+              -e BITBUCKET_WORKSPACE=your-workspace \
               ${{ secrets.DOCKERHUB_USERNAME }}/bitbucket-mcp:${{ github.ref_name }}
             ```
 
@@ -119,3 +176,5 @@ jobs:
             ```bash
             claude mcp add --transport http bitbucket http://localhost:8000/mcp
             ```
+
+            **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ steps.prev_tag.outputs.tag }}...${{ github.ref_name }}

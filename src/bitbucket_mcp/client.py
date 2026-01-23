@@ -23,6 +23,7 @@ class BitbucketClient:
                 auth=self.config.auth,
                 timeout=30.0,
                 headers={"Accept": "application/json"},
+                follow_redirects=True,
             )
         return self._client
 
