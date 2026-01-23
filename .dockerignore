@@ -1,0 +1,33 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*.egg-info
+.eggs
+dist
+build
+.venv
+venv
+
+# Testing
+.pytest_cache
+.coverage
+coverage.xml
+htmlcov
+
+# IDE
+.idea
+.vscode
+*.swp
+
+# Project files not needed in image
+tests
+PRPs
+*.md
+!README.md
+.github
+.ruff_cache
+.mypy_cache
