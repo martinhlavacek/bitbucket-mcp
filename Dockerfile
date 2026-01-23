@@ -21,8 +21,6 @@ RUN uv pip install --system .
 RUN useradd --create-home --shell /bin/bash mcp
 USER mcp
 
-# Default port
-ENV BITBUCKET_MCP_PORT=8000
 EXPOSE 8000
 
 # Health check

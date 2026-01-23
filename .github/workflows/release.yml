@@ -27,6 +27,7 @@ jobs:
       - name: Run tests
         run: |
           ruff check src tests
+          ruff format --check src tests
           pytest tests -v
 
   docker:
