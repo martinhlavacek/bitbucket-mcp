@@ -93,7 +93,7 @@ docker run -d \
   -p 8000:8000 \
   -e BITBUCKET_EMAIL=your-email@example.com \
   -e BITBUCKET_API_TOKEN=your-api-token \
-  martinhlavacek/bitbucket-mcp:latest
+  hlavaceklab/bitbucket-mcp:latest
 ```
 
 ### Connect Claude Code to Remote Server
