@@ -116,6 +116,22 @@ claude mcp add --transport http bitbucket http://localhost:8000/mcp
 }
 ```
 
+### Docker Compose
+
+Create a `.env` file with your credentials:
+
+```bash
+BITBUCKET_EMAIL=your-email@example.com
+BITBUCKET_API_TOKEN=your-api-token
+BITBUCKET_WORKSPACE=your-workspace
+```
+
+Run with Docker Compose:
+
+```bash
+docker compose up -d
+```
+
 ### Build Locally
 
 ```bash
@@ -125,6 +141,13 @@ docker run -d -p 8000:8000 \
   -e BITBUCKET_API_TOKEN=your-api-token \
   bitbucket-mcp
 ```
+
+### Monitoring Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `/health` | Health check (JSON) |
+| `/metrics` | Prometheus metrics |
 
 ## Available Tools
 

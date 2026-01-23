@@ -10,12 +10,19 @@ WORKDIR /app
 # Install uv for faster dependency installation
 RUN pip install --no-cache-dir uv
 
-# Copy project files
-COPY pyproject.toml README.md LICENSE ./
+# Copy dependency specification first (for better layer caching)
+COPY pyproject.toml ./
+
+# Install dependencies only (will be cached if pyproject.toml unchanged)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system fastmcp httpx
+
+# Copy source code (changes more frequently)
+COPY README.md LICENSE ./
 COPY src/ ./src/
 
-# Install dependencies with uv
-RUN uv pip install --system .
+# Install the package itself (quick, deps already installed)
+RUN uv pip install --system --no-deps .
 
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash mcp

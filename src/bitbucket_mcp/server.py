@@ -1,14 +1,14 @@
 """Bitbucket MCP Server - FastMCP server for Bitbucket Cloud API."""
 
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import Field
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, PlainTextResponse
 
 from bitbucket_mcp.client import BitbucketClient
 from bitbucket_mcp.config import BitbucketConfig
@@ -44,9 +44,29 @@ async def health_endpoint(_request: Request) -> JSONResponse:
             "status": "healthy",
             "service": "bitbucket-mcp",
             "uptime_seconds": time.time() - _server_start_time,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     )
+
+
+# Prometheus metrics endpoint
+@mcp.custom_route("/metrics", methods=["GET"])
+async def metrics_endpoint(_request: Request) -> PlainTextResponse:
+    """Prometheus-compatible metrics endpoint."""
+    uptime = time.time() - _server_start_time
+    metrics = f"""# HELP bitbucket_mcp_up Whether the service is up (1 = up, 0 = down)
+# TYPE bitbucket_mcp_up gauge
+bitbucket_mcp_up 1
+
+# HELP bitbucket_mcp_uptime_seconds Time since server started
+# TYPE bitbucket_mcp_uptime_seconds counter
+bitbucket_mcp_uptime_seconds {uptime:.2f}
+
+# HELP bitbucket_mcp_info Service information
+# TYPE bitbucket_mcp_info gauge
+bitbucket_mcp_info{{service="bitbucket-mcp",version="0.1.0"}} 1
+"""
+    return PlainTextResponse(metrics, media_type="text/plain; version=0.0.4")
 
 
 # Global client instance

@@ -48,6 +48,9 @@ jobs:
           echo "major=$(echo $VERSION | cut -d. -f1)" >> $GITHUB_OUTPUT
           echo "minor=$(echo $VERSION | cut -d. -f1-2)" >> $GITHUB_OUTPUT
 
+      - name: Set up QEMU for multi-arch builds
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -61,7 +64,10 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: |
             ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
             ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.minor }}
