@@ -84,6 +84,48 @@ claude mcp add --transport stdio \
 python -m bitbucket_mcp
 ```
 
+## Docker
+
+### Run with Docker
+
+```bash
+docker run -d \
+  -p 8000:8000 \
+  -e BITBUCKET_EMAIL=your-email@example.com \
+  -e BITBUCKET_API_TOKEN=your-api-token \
+  martinhlavacek/bitbucket-mcp:latest
+```
+
+### Connect Claude Code to Remote Server
+
+**Via CLI:**
+
+```bash
+claude mcp add --transport http bitbucket http://localhost:8000/mcp
+```
+
+**Via JSON config:**
+
+```json
+{
+  "mcpServers": {
+    "bitbucket": {
+      "url": "http://your-server:8000/mcp"
+    }
+  }
+}
+```
+
+### Build Locally
+
+```bash
+docker build -t bitbucket-mcp .
+docker run -d -p 8000:8000 \
+  -e BITBUCKET_EMAIL=your-email@example.com \
+  -e BITBUCKET_API_TOKEN=your-api-token \
+  bitbucket-mcp
+```
+
 ## Available Tools
 
 | Tool | Description |
