@@ -2,6 +2,21 @@
 
 This file provides guidance to Claude Code when working with this repository.
 
+## Project Config
+
+issue-provider: github
+git-provider: github
+repo-url: https://github.com/martinhlavacek/bitbucket-mcp
+
+## Branch Naming
+
+pattern: {scope}/gh-{id}-{name}
+
+## Build Commands
+
+build: pytest
+test: ruff check src tests && pytest
+
 ## Project Overview
 
 Bitbucket MCP is a Model Context Protocol (MCP) server for Bitbucket Cloud API. It enables AI assistants like Claude to interact with Bitbucket repositories, pull requests, and branches.

@@ -1,5 +1,6 @@
 # Bitbucket MCP
 
+[![CI](https://github.com/martinhlavacek/bitbucket-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/martinhlavacek/bitbucket-mcp/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
@@ -7,19 +8,15 @@ MCP (Model Context Protocol) server for Bitbucket Cloud API. Enables AI assistan
 
 ## Features
 
-- 🔀 **Pull Requests** - Create, list, merge, approve, and comment on PRs
-- 🌿 **Branches** - List and manage branches
+- 🔀 **Pull Requests** - Create, list, merge, approve, decline, and comment on PRs
+- 🌿 **Branches** - List repository branches
 - 📁 **Repositories** - Get repository information
 - 🔍 **Diffs** - View PR diffs and changes
-- 🔗 **Jira Integration** - Link PRs with Jira issues (optional)
+- 💬 **Comments** - Add and list PR comments
 
 ## Installation
 
-```bash
-pip install bitbucket-mcp
-```
-
-Or install from source:
+Install from source:
 
 ```bash
 git clone https://github.com/martinhlavacek/bitbucket-mcp.git
@@ -77,16 +74,18 @@ python -m bitbucket_mcp
 
 | Tool | Description |
 |------|-------------|
-| `bitbucket_create_pr` | Create a new pull request |
+| `bitbucket_get_repo` | Get repository information |
+| `bitbucket_list_branches` | List repository branches |
 | `bitbucket_list_prs` | List pull requests |
 | `bitbucket_get_pr` | Get pull request details |
+| `bitbucket_create_pr` | Create a new pull request |
 | `bitbucket_merge_pr` | Merge a pull request |
 | `bitbucket_approve_pr` | Approve a pull request |
+| `bitbucket_unapprove_pr` | Remove approval from a PR |
 | `bitbucket_decline_pr` | Decline a pull request |
-| `bitbucket_add_comment` | Add comment to a PR |
 | `bitbucket_get_diff` | Get PR diff |
-| `bitbucket_list_branches` | List repository branches |
-| `bitbucket_get_repo` | Get repository information |
+| `bitbucket_add_comment` | Add comment to a PR |
+| `bitbucket_list_comments` | List PR comments |
 
 ## Development
 
