@@ -52,7 +52,16 @@ export BITBUCKET_WORKSPACE="your-workspace"  # optional default workspace
 
 ### With Claude Code
 
-Add to your Claude Code MCP configuration:
+**Via CLI:**
+
+```bash
+claude mcp add --transport stdio \
+  --env BITBUCKET_EMAIL=your-email@example.com \
+  --env BITBUCKET_API_TOKEN=your-api-token \
+  bitbucket -- python -m bitbucket_mcp
+```
+
+**Or add to your MCP configuration file:**
 
 ```json
 {
