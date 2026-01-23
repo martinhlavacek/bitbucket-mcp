@@ -40,6 +40,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Update Docker Hub description
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ secrets.DOCKERHUB_USERNAME }}/bitbucket-mcp
+          short-description: "MCP server for Bitbucket Cloud API"
+          readme-filepath: ./README.md
+
       - name: Extract version from tag
         id: version
         run: |
