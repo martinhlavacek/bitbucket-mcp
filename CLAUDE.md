@@ -122,3 +122,69 @@ Use [Conventional Commits](https://www.conventionalcommits.org/):
 - Write docstrings for public functions
 - 100 character line length
 - Use async/await for API calls
+
+## Archon Task Management
+
+**VŽDY** používej Archon MCP pro task management během implementace.
+
+### Tool Reference
+
+**Projects:**
+
+- `find_projects(query="...")` - Search projects
+- `find_projects(project_id="...")` - Get specific project
+- `manage_project("create"/"update"/"delete", ...)` - Manage projects
+
+**Tasks:**
+
+- `find_tasks(query="...")` - Search tasks by keyword
+- `find_tasks(task_id="...")` - Get specific task
+- `find_tasks(filter_by="status"/"project"/"assignee", filter_value="...")` - Filter tasks
+- `manage_task("create"/"update"/"delete", ...)` - Manage tasks
+
+**Knowledge Base:**
+
+- `rag_get_available_sources()` - List all sources
+- `rag_search_knowledge_base(query="...", source_id="...")` - Search docs
+- `rag_search_code_examples(query="...", source_id="...")` - Find code
+
+### Important Notes
+
+- Task status flow: `todo` → `doing` → `review` → `done`
+- Keep queries SHORT (2-5 keywords) for better search results
+- Higher `task_order` = higher priority (0-100)
+- Tasks should be 30 min - 4 hours of work
+- **VŽDY aktualizuj task status** při změně fáze práce
+
+## Default Workflow
+
+### Příprava
+
+- Vytvoř projekt v Archon přes MCP
+- Zeptej se na **cube** a **milestone** pokud nejsou uvedeny v issue
+- Vytvoř v Archonu tasky pro implementaci
+- Vždy vytvoř jako poslední task "Code review" (zůstane v todo dokud není vše hotovo)
+- Ulož implementační plán do Archon docs jako **markdown** (ne JSON!)
+- Vytvoř branch ve formátu `{scope}/gh-{issue-id}-{nazev-issue}`
+- Propoj branch s projektem přes MCP
+
+### Implementace
+
+- **Průběžně aktualizuj tasky v Archonu** (doing → review → done)
+- Po dokončení každé fáze IHNED aktualizuj příslušný task
+- Testy musí vždy pokrývat nové funkcionality
+
+### Dokončení
+
+- Ověř že jde aplikace zbuildovat
+- Ověř že všechny linty jsou OK
+- Ověř že všechny testy prošly
+- Vytvoř PR, propoj s projektem přes MCP
+- Task "Code review" přesuň z todo do review
+- **Ostatní implementační tasky přesuň do done**
+
+### Po merge
+
+- Aktualizuj stav issue (closed)
+- Aktualizuj stav PR (merged) přes MCP
+- Task "Code review" přesuň do done
