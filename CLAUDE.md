@@ -104,6 +104,10 @@ tests/
 | `bitbucket_get_diff` | Get PR diff |
 | `bitbucket_add_comment` | Add comment to PR |
 | `bitbucket_list_comments` | List PR comments |
+| `bitbucket_get_pr_pipeline` | Get latest CI pipeline status for a PR (running/passed/failed) |
+| `bitbucket_get_pipeline_step_log` | Get a pipeline step log (tail 200 by default) |
+| `bitbucket_list_pipelines` | List recent pipelines, optionally by branch |
+| `bitbucket_get_pipeline` | Get a pipeline with per-step breakdown |
 
 ## Commit Convention
 

@@ -230,3 +230,71 @@ class BitbucketClient:
         return await self.get(
             f"/repositories/{workspace}/{repo_slug}/pullrequests/{pr_id}/comments"
         )
+
+    # Pipeline methods
+
+    async def list_pipelines(
+        self,
+        workspace: str,
+        repo_slug: str,
+        query: str | None = None,
+        sort: str = "-created_on",
+        page: int = 1,
+        pagelen: int = 25,
+    ) -> dict[str, Any]:
+        """List pipelines, newest first, optionally filtered by a Bitbucket query expression.
+
+        The ``query`` is a Bitbucket query-language expression on the pipeline fields,
+        e.g. ``target.commit.hash="abc123"`` or ``target.ref_name="my-branch"``.
+        """
+        params: dict[str, Any] = {"sort": sort, "page": page, "pagelen": pagelen}
+        if query:
+            params["q"] = query
+        return await self.get(f"/repositories/{workspace}/{repo_slug}/pipelines/", **params)
+
+    async def get_pipeline(
+        self,
+        workspace: str,
+        repo_slug: str,
+        pipeline_uuid: str,
+    ) -> dict[str, Any]:
+        """Get a specific pipeline by UUID."""
+        return await self.get(f"/repositories/{workspace}/{repo_slug}/pipelines/{pipeline_uuid}")
+
+    async def list_pipeline_steps(
+        self,
+        workspace: str,
+        repo_slug: str,
+        pipeline_uuid: str,
+        pagelen: int = 100,
+    ) -> dict[str, Any]:
+        """List the steps of a pipeline.
+
+        Uses the maximum page size (100) so the full step list is returned in one
+        call; otherwise the default page size (~10) would truncate the steps and a
+        failing step beyond the first page would be missed.
+        """
+        return await self.get(
+            f"/repositories/{workspace}/{repo_slug}/pipelines/{pipeline_uuid}/steps/",
+            pagelen=pagelen,
+        )
+
+    async def get_pipeline_step_log(
+        self,
+        workspace: str,
+        repo_slug: str,
+        pipeline_uuid: str,
+        step_uuid: str,
+    ) -> str:
+        """Get the log output of a pipeline step as plain text.
+
+        The Bitbucket log endpoint serves ``application/octet-stream`` and rejects a
+        ``text/plain`` Accept header with 406, so we accept any content type here.
+        """
+        client = await self._get_client()
+        response = await client.get(
+            f"/repositories/{workspace}/{repo_slug}/pipelines/{pipeline_uuid}/steps/{step_uuid}/log",
+            headers={"Accept": "*/*"},
+        )
+        response.raise_for_status()
+        return response.text
