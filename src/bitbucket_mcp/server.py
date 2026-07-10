@@ -64,7 +64,7 @@ bitbucket_mcp_uptime_seconds {uptime:.2f}
 
 # HELP bitbucket_mcp_info Service information
 # TYPE bitbucket_mcp_info gauge
-bitbucket_mcp_info{{service="bitbucket-mcp",version="0.1.0"}} 1
+bitbucket_mcp_info{{service="bitbucket-mcp",version="0.2.0"}} 1
 """
     return PlainTextResponse(metrics, media_type="text/plain; version=0.0.4")
 
