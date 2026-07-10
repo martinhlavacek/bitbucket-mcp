@@ -225,7 +225,7 @@ class TestBitbucketClient:
             ],
             "size": 2,
         }
-        respx.get(
+        route = respx.get(
             "https://api.bitbucket.org/2.0/repositories/testworkspace/test-repo/pipelines/%7Bp1%7D/steps/"
         ).mock(return_value=Response(200, json=mock_response))
 
@@ -233,6 +233,8 @@ class TestBitbucketClient:
 
         assert len(result["values"]) == 2
         assert result["values"][1]["name"] == "test"
+        # Max page size so steps are not truncated to the first page (~10).
+        assert route.calls.last.request.url.params["pagelen"] == "100"
 
     @respx.mock
     async def test_get_pipeline_step_log(self, client: BitbucketClient) -> None:

@@ -9,7 +9,7 @@ from bitbucket_mcp.config import BitbucketConfig
 from bitbucket_mcp.server import (
     _resolve_latest_pipeline,
     _summarize_pipeline,
-    _tail_lines,
+    _tail_log,
 )
 
 
@@ -115,25 +115,58 @@ class TestSummarizePipeline:
         summary = _summarize_pipeline(_pipeline("PENDING"), [])
         assert summary["status"] == "pending"
 
+    def test_error_result_surfaces_failed_step(self) -> None:
+        pipeline = _pipeline("COMPLETED", "FAILED", build_number=20)
+        steps = [
+            _step("build", "COMPLETED", "SUCCESSFUL"),
+            _step("test", "COMPLETED", "ERROR"),
+        ]
 
-class TestTailLines:
+        summary = _summarize_pipeline(pipeline, steps)
+
+        assert summary["failed_step"] == {"uuid": "{test}", "name": "test"}
+
+    def test_parallel_running_step_not_listed_as_remaining(self) -> None:
+        pipeline = _pipeline("IN_PROGRESS", build_number=21)
+        steps = [
+            _step("build", "IN_PROGRESS"),
+            _step("test", "IN_PROGRESS"),
+            _step("deploy", "PENDING"),
+        ]
+
+        summary = _summarize_pipeline(pipeline, steps)
+
+        assert summary["current_step"]["name"] == "build"
+        # A second concurrently-running step must not be reported as remaining.
+        assert summary["remaining_steps"] == ["deploy"]
+
+
+class TestTailLog:
     """Tests for log tail truncation."""
 
     def test_truncates_to_last_n(self) -> None:
         text = "\n".join(str(i) for i in range(1000))
-        result = _tail_lines(text, 200)
-        lines = result.splitlines()
-        assert len(lines) == 200
+        result = _tail_log(text, 200)
+        lines = result["log"].splitlines()
+        assert result["total_lines"] == 1000
+        assert result["returned_lines"] == 200
+        assert result["truncated"] is True
         assert lines[-1] == "999"
         assert lines[0] == "800"
 
     def test_short_log_not_truncated(self) -> None:
         text = "line1\nline2\nline3"
-        assert _tail_lines(text, 200) == text
+        result = _tail_log(text, 200)
+        assert result["log"] == text
+        assert result["truncated"] is False
+        assert result["total_lines"] == 3
 
     def test_zero_returns_whole_log(self) -> None:
         text = "\n".join(str(i) for i in range(500))
-        assert _tail_lines(text, 0) == text
+        result = _tail_log(text, 0)
+        assert result["log"] == text
+        assert result["truncated"] is False
+        assert result["returned_lines"] == 500
 
 
 class TestResolveLatestPipeline:

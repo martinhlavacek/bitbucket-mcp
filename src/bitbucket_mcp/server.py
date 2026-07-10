@@ -339,14 +339,21 @@ async def bitbucket_list_comments(
 # =============================================================================
 
 
-def _tail_lines(text: str, tail: int) -> str:
-    """Return only the last ``tail`` lines of ``text`` (all lines if tail <= 0)."""
-    if tail <= 0:
-        return text
-    lines = text.splitlines()
-    if len(lines) <= tail:
-        return text
-    return "\n".join(lines[-tail:])
+def _tail_log(log: str, tail: int) -> dict[str, Any]:
+    """Split ``log`` once and return its last ``tail`` lines plus line counts.
+
+    ``tail <= 0`` returns the whole log. Splitting a single time avoids re-scanning
+    a potentially multi-MB log to compute totals and truncation separately.
+    """
+    lines = log.splitlines()
+    total = len(lines)
+    returned = lines if tail <= 0 or total <= tail else lines[-tail:]
+    return {
+        "total_lines": total,
+        "returned_lines": len(returned),
+        "truncated": tail > 0 and total > tail,
+        "log": "\n".join(returned),
+    }
 
 
 def _summarize_pipeline(pipeline: dict[str, Any], steps: list[dict[str, Any]]) -> dict[str, Any]:
@@ -375,11 +382,14 @@ def _summarize_pipeline(pipeline: dict[str, Any], steps: list[dict[str, Any]]) -
         step_breakdown.append(
             {"uuid": uuid, "name": name, "state": s_state_name, "result": s_result}
         )
-        if s_state_name == "IN_PROGRESS" and current_step is None:
-            current_step = {"uuid": uuid, "name": name, "position": f"{idx + 1}/{total}"}
+        if s_state_name == "IN_PROGRESS":
+            if current_step is None:
+                current_step = {"uuid": uuid, "name": name, "position": f"{idx + 1}/{total}"}
         elif s_state_name != "COMPLETED":
             remaining.append(name)
-        if s_result == "FAILED" and failed_step is None:
+        # A step can fail with several terminal results (FAILED, ERROR, EXPIRED);
+        # surface the first non-successful one so its log can always be fetched.
+        if s_result in ("FAILED", "ERROR", "EXPIRED") and failed_step is None:
             failed_step = {"uuid": uuid, "name": name}
 
     build_number = pipeline.get("build_number")
@@ -495,7 +505,7 @@ async def bitbucket_get_pr_pipeline(
     source_commit = (source.get("commit") or {}).get("hash")
 
     pipeline, resolved_by = await _resolve_latest_pipeline(client, ws, repo_slug, pr)
-    if pipeline is None:
+    if pipeline is None or not pipeline.get("uuid"):
         return {
             "pr_id": pr_id,
             "found": False,
@@ -536,16 +546,9 @@ async def bitbucket_get_pipeline_step_log(
     ws = get_workspace(workspace)
 
     log = await client.get_pipeline_step_log(ws, repo_slug, pipeline_uuid, step_uuid)
-    total_lines = len(log.splitlines())
-    returned_log = _tail_lines(log, tail)
-    return {
-        "pipeline_uuid": pipeline_uuid,
-        "step_uuid": step_uuid,
-        "total_lines": total_lines,
-        "returned_lines": len(returned_log.splitlines()),
-        "truncated": tail > 0 and total_lines > tail,
-        "log": returned_log,
-    }
+    result = _tail_log(log, tail)
+    result.update({"pipeline_uuid": pipeline_uuid, "step_uuid": step_uuid})
+    return result
 
 
 @mcp.tool(

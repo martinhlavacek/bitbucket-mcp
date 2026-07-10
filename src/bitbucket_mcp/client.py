@@ -266,10 +266,17 @@ class BitbucketClient:
         workspace: str,
         repo_slug: str,
         pipeline_uuid: str,
+        pagelen: int = 100,
     ) -> dict[str, Any]:
-        """List the steps of a pipeline."""
+        """List the steps of a pipeline.
+
+        Uses the maximum page size (100) so the full step list is returned in one
+        call; otherwise the default page size (~10) would truncate the steps and a
+        failing step beyond the first page would be missed.
+        """
         return await self.get(
-            f"/repositories/{workspace}/{repo_slug}/pipelines/{pipeline_uuid}/steps/"
+            f"/repositories/{workspace}/{repo_slug}/pipelines/{pipeline_uuid}/steps/",
+            pagelen=pagelen,
         )
 
     async def get_pipeline_step_log(
