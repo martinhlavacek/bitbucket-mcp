@@ -179,3 +179,71 @@ class TestBitbucketClient:
         )
 
         assert result["content"]["raw"] == "Test comment"
+
+    @respx.mock
+    async def test_list_pipelines(self, client: BitbucketClient) -> None:
+        """Test listing pipelines with a query filter."""
+        mock_response = {
+            "values": [
+                {"uuid": "{p1}", "build_number": 42, "state": {"name": "COMPLETED"}},
+            ],
+            "page": 1,
+            "size": 1,
+        }
+        route = respx.get(
+            "https://api.bitbucket.org/2.0/repositories/testworkspace/test-repo/pipelines/"
+        ).mock(return_value=Response(200, json=mock_response))
+
+        result = await client.list_pipelines(
+            "testworkspace", "test-repo", query='target.ref_name="main"'
+        )
+
+        assert result["values"][0]["build_number"] == 42
+        request = route.calls.last.request
+        assert request.url.params["q"] == 'target.ref_name="main"'
+        assert request.url.params["sort"] == "-created_on"
+
+    @respx.mock
+    async def test_get_pipeline(self, client: BitbucketClient) -> None:
+        """Test getting a specific pipeline by UUID."""
+        mock_response = {"uuid": "{p1}", "build_number": 7, "state": {"name": "COMPLETED"}}
+        respx.get(
+            "https://api.bitbucket.org/2.0/repositories/testworkspace/test-repo/pipelines/%7Bp1%7D"
+        ).mock(return_value=Response(200, json=mock_response))
+
+        result = await client.get_pipeline("testworkspace", "test-repo", "{p1}")
+
+        assert result["build_number"] == 7
+
+    @respx.mock
+    async def test_list_pipeline_steps(self, client: BitbucketClient) -> None:
+        """Test listing pipeline steps."""
+        mock_response = {
+            "values": [
+                {"uuid": "{s1}", "name": "build", "state": {"name": "COMPLETED"}},
+                {"uuid": "{s2}", "name": "test", "state": {"name": "COMPLETED"}},
+            ],
+            "size": 2,
+        }
+        respx.get(
+            "https://api.bitbucket.org/2.0/repositories/testworkspace/test-repo/pipelines/%7Bp1%7D/steps/"
+        ).mock(return_value=Response(200, json=mock_response))
+
+        result = await client.list_pipeline_steps("testworkspace", "test-repo", "{p1}")
+
+        assert len(result["values"]) == 2
+        assert result["values"][1]["name"] == "test"
+
+    @respx.mock
+    async def test_get_pipeline_step_log(self, client: BitbucketClient) -> None:
+        """Test getting a pipeline step log as plain text."""
+        mock_log = "Running tests...\nFAILED test_foo\nexit code 1"
+        route = respx.get(
+            "https://api.bitbucket.org/2.0/repositories/testworkspace/test-repo/pipelines/%7Bp1%7D/steps/%7Bs2%7D/log"
+        ).mock(return_value=Response(200, text=mock_log))
+
+        result = await client.get_pipeline_step_log("testworkspace", "test-repo", "{p1}", "{s2}")
+
+        assert "FAILED test_foo" in result
+        # The log endpoint rejects an ``Accept: text/plain`` header with 406.
+        assert route.calls.last.request.headers["accept"] == "*/*"

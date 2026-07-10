@@ -173,6 +173,10 @@ docker run -d -p 8000:8000 \
 | `bitbucket_get_diff` | Get PR diff |
 | `bitbucket_add_comment` | Add comment to a PR |
 | `bitbucket_list_comments` | List PR comments |
+| `bitbucket_get_pr_pipeline` | Get the latest CI pipeline status for a PR (running / passed / failed) |
+| `bitbucket_get_pipeline_step_log` | Get a pipeline step's log (last 200 lines by default) |
+| `bitbucket_list_pipelines` | List recent pipelines, optionally filtered by branch |
+| `bitbucket_get_pipeline` | Get a pipeline with its per-step breakdown |
 
 ## Development
 
