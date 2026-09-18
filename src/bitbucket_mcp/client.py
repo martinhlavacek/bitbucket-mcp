@@ -298,3 +298,54 @@ class BitbucketClient:
         )
         response.raise_for_status()
         return response.text
+
+    async def trigger_pipeline(
+        self,
+        workspace: str,
+        repo_slug: str,
+        ref_name: str,
+        ref_type: str = "branch",
+        selector: str | None = None,
+        variables: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Trigger a pipeline run and return the created pipeline.
+
+        Omitting ``selector`` runs the branch's default pipeline; passing it runs the
+        custom pipeline of that name, matching the "Run pipeline" dialog in the UI.
+        """
+        target: dict[str, Any] = {
+            "type": "pipeline_ref_target",
+            "ref_type": ref_type,
+            "ref_name": ref_name,
+        }
+        if selector:
+            target["selector"] = {"type": "custom", "pattern": selector}
+
+        payload: dict[str, Any] = {"target": target}
+        if variables:
+            for variable in variables:
+                if variable.get("secured"):
+                    raise ValueError(
+                        "secured pipeline variables are not supported - "
+                        "define them in the repository settings instead"
+                    )
+            payload["variables"] = variables
+
+        return await self.post(f"/repositories/{workspace}/{repo_slug}/pipelines/", json=payload)
+
+    async def stop_pipeline(
+        self,
+        workspace: str,
+        repo_slug: str,
+        pipeline_uuid: str,
+    ) -> None:
+        """Signal a running pipeline to stop.
+
+        Bitbucket answers 204 with an empty body, so this cannot go through ``post()``
+        which would fail decoding the response as JSON.
+        """
+        client = await self._get_client()
+        response = await client.post(
+            f"/repositories/{workspace}/{repo_slug}/pipelines/{pipeline_uuid}/stopPipeline"
+        )
+        response.raise_for_status()

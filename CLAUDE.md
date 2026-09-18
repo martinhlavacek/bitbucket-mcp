@@ -108,6 +108,8 @@ tests/
 | `bitbucket_get_pipeline_step_log` | Get a pipeline step log (tail 200 by default) |
 | `bitbucket_list_pipelines` | List recent pipelines, optionally by branch |
 | `bitbucket_get_pipeline` | Get a pipeline with per-step breakdown |
+| `bitbucket_trigger_pipeline` | Trigger a pipeline run (requires BITBUCKET_ALLOW_PIPELINE_TRIGGER + allowlist) |
+| `bitbucket_stop_pipeline` | Signal a running pipeline to stop |
 
 ## Commit Convention
 

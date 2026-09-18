@@ -1,15 +1,27 @@
 """Tests for pipeline helpers in the MCP server."""
 
+import json
+import os
+from unittest.mock import patch
+
+import httpx
 import pytest
 import respx
+from fastmcp.exceptions import ToolError
 from httpx import Request, Response
 
+from bitbucket_mcp import server
 from bitbucket_mcp.client import BitbucketClient
 from bitbucket_mcp.config import BitbucketConfig
 from bitbucket_mcp.server import (
+    _pipeline_scope_error,
+    _require_stop_allowed,
+    _require_trigger_allowed,
     _resolve_latest_pipeline,
     _summarize_pipeline,
     _tail_log,
+    bitbucket_stop_pipeline,
+    bitbucket_trigger_pipeline,
 )
 
 
@@ -214,3 +226,258 @@ class TestResolveLatestPipeline:
 
         assert pipeline is None
         assert resolved_by is None
+
+
+CREDS = {
+    "BITBUCKET_EMAIL": "test@example.com",
+    "BITBUCKET_API_TOKEN": "tok",
+    "BITBUCKET_WORKSPACE": "ws",
+}
+
+
+def _env(**extra: str) -> dict[str, str]:
+    """Build an environment with credentials plus ``extra``.
+
+    Always used with ``clear=True`` so a developer's own BITBUCKET_* settings cannot
+    leak in and make a guardrail test pass for the wrong reason.
+    """
+    return {**CREDS, **extra}
+
+
+class TestTriggerGuardrails:
+    """Tests for the two gates in front of triggering a pipeline."""
+
+    def test_rejected_when_opt_in_missing(self) -> None:
+        """Without the global opt-in nothing can be triggered, not even the default."""
+        with (
+            patch.dict(os.environ, _env(), clear=True),
+            pytest.raises(ToolError, match="BITBUCKET_ALLOW_PIPELINE_TRIGGER"),
+        ):
+            _require_trigger_allowed("my-api", None)
+
+    def test_default_pipeline_needs_no_allowlist_entry(self) -> None:
+        """The default pipeline runs what a push would run, so the opt-in alone suffices."""
+        with patch.dict(os.environ, _env(BITBUCKET_ALLOW_PIPELINE_TRIGGER="true"), clear=True):
+            _require_trigger_allowed("my-api", None)
+
+    def test_custom_pipeline_rejected_with_empty_allowlist(self) -> None:
+        """An empty allowlist means no custom pipeline, not every custom pipeline."""
+        with (
+            patch.dict(os.environ, _env(BITBUCKET_ALLOW_PIPELINE_TRIGGER="true"), clear=True),
+            pytest.raises(ToolError, match="not allowed"),
+        ):
+            _require_trigger_allowed("my-api", "ci")
+
+    def test_custom_pipeline_allowed_when_listed(self) -> None:
+        """A listed repo/pipeline pair passes."""
+        env = _env(
+            BITBUCKET_ALLOW_PIPELINE_TRIGGER="true",
+            BITBUCKET_PIPELINE_ALLOWLIST="my-api:ci",
+        )
+        with patch.dict(os.environ, env, clear=True):
+            _require_trigger_allowed("my-api", "ci")
+
+    def test_same_pipeline_name_in_another_repo_is_rejected(self) -> None:
+        """The allowlist is scoped - 'ci' for my-api must not unlock 'ci' for web.
+
+        This is the reason the allowlist is not a flat list of names: one server
+        instance serves every repository.
+        """
+        env = _env(
+            BITBUCKET_ALLOW_PIPELINE_TRIGGER="true",
+            BITBUCKET_PIPELINE_ALLOWLIST="my-api:ci",
+        )
+        with (
+            patch.dict(os.environ, env, clear=True),
+            pytest.raises(ToolError, match="not allowed"),
+        ):
+            _require_trigger_allowed("web", "ci")
+
+    def test_rejection_message_lists_what_is_allowed(self) -> None:
+        """The error says what may be run instead of only what may not."""
+        env = _env(
+            BITBUCKET_ALLOW_PIPELINE_TRIGGER="true",
+            BITBUCKET_PIPELINE_ALLOWLIST="my-api:ci,my-api:preview",
+        )
+        with patch.dict(os.environ, env, clear=True), pytest.raises(ToolError) as excinfo:
+            _require_trigger_allowed("my-api", "prod-deploy")
+
+        assert "ci, preview" in str(excinfo.value)
+
+
+class TestStopGuardrail:
+    """Tests for the separate opt-in guarding pipeline stops."""
+
+    def test_allowed_by_default(self) -> None:
+        """Stopping is on by default and independent of the trigger opt-in."""
+        with patch.dict(os.environ, _env(), clear=True):
+            _require_stop_allowed()
+
+    def test_rejected_when_disabled(self) -> None:
+        """Test the stop flag can be turned off."""
+        with (
+            patch.dict(os.environ, _env(BITBUCKET_ALLOW_PIPELINE_STOP="false"), clear=True),
+            pytest.raises(ToolError, match="BITBUCKET_ALLOW_PIPELINE_STOP"),
+        ):
+            _require_stop_allowed()
+
+
+class TestPipelineScopeError:
+    """Tests for translating a bare 403 into a token-scope explanation."""
+
+    def _error(self, status: int) -> httpx.HTTPStatusError:
+        request = Request("POST", "https://api.bitbucket.org/2.0/x")
+        return httpx.HTTPStatusError(
+            "boom", request=request, response=Response(status, request=request)
+        )
+
+    def test_403_names_the_missing_scope(self) -> None:
+        """A 403 reads as a repository permission problem unless the scope is named."""
+        error = _pipeline_scope_error(self._error(403))
+
+        assert error is not None
+        assert "write:pipeline:bitbucket" in str(error)
+
+    def test_other_statuses_are_left_alone(self) -> None:
+        """Only 403 is translated; everything else keeps its original error."""
+        assert _pipeline_scope_error(self._error(404)) is None
+
+
+class TestPipelineWriteTools:
+    """Tests for the tool functions themselves, past the guardrails."""
+
+    @respx.mock
+    async def test_trigger_returns_uuid_and_build_number(self) -> None:
+        """The tool answers with the run's identity, it does not wait for it to finish."""
+        respx.post("https://api.bitbucket.org/2.0/repositories/ws/my-api/pipelines/").mock(
+            return_value=Response(
+                201,
+                json={"uuid": "{p9}", "build_number": 42, "state": {"name": "PENDING"}},
+            )
+        )
+        env = _env(
+            BITBUCKET_ALLOW_PIPELINE_TRIGGER="true",
+            BITBUCKET_PIPELINE_ALLOWLIST="my-api:ci",
+        )
+
+        with patch.dict(os.environ, env, clear=True):
+            server._client = None
+            try:
+                result = await bitbucket_trigger_pipeline.fn(
+                    repo_slug="my-api", ref_name="main", pipeline="ci"
+                )
+            finally:
+                server._client = None
+
+        assert result == {
+            "uuid": "{p9}",
+            "build_number": 42,
+            "state": "PENDING",
+            "repo_slug": "my-api",
+            "ref_name": "main",
+            "pipeline": "ci",
+        }
+
+    @respx.mock
+    async def test_trigger_reports_default_pipeline(self) -> None:
+        """A run without a selector is reported as the default pipeline."""
+        respx.post("https://api.bitbucket.org/2.0/repositories/ws/my-api/pipelines/").mock(
+            return_value=Response(201, json={"uuid": "{p10}", "build_number": 43})
+        )
+
+        with patch.dict(os.environ, _env(BITBUCKET_ALLOW_PIPELINE_TRIGGER="true"), clear=True):
+            server._client = None
+            try:
+                result = await bitbucket_trigger_pipeline.fn(repo_slug="my-api", ref_name="main")
+            finally:
+                server._client = None
+
+        assert result["pipeline"] == "(default)"
+        assert result["state"] is None
+
+    @respx.mock
+    async def test_trigger_maps_403_to_scope_error(self) -> None:
+        """A 403 from Bitbucket surfaces as the scope explanation, not a raw HTTP error."""
+        respx.post("https://api.bitbucket.org/2.0/repositories/ws/my-api/pipelines/").mock(
+            return_value=Response(403, json={"error": {"message": "Forbidden"}})
+        )
+
+        with patch.dict(os.environ, _env(BITBUCKET_ALLOW_PIPELINE_TRIGGER="true"), clear=True):
+            server._client = None
+            try:
+                with pytest.raises(ToolError, match="write:pipeline:bitbucket"):
+                    await bitbucket_trigger_pipeline.fn(repo_slug="my-api", ref_name="main")
+            finally:
+                server._client = None
+
+    @respx.mock
+    async def test_stop_reports_success(self) -> None:
+        """Stopping answers a plain confirmation once Bitbucket accepted the signal."""
+        respx.post(
+            "https://api.bitbucket.org/2.0/repositories/ws/my-api/pipelines/pipe-1/stopPipeline"
+        ).mock(return_value=Response(204))
+
+        with patch.dict(os.environ, _env(), clear=True):
+            server._client = None
+            try:
+                result = await bitbucket_stop_pipeline.fn(
+                    repo_slug="my-api", pipeline_uuid="pipe-1"
+                )
+            finally:
+                server._client = None
+
+        assert result == {"pipeline_uuid": "pipe-1", "stopped": True}
+
+    @respx.mock
+    async def test_stop_maps_403_to_scope_error(self) -> None:
+        """The stop tool needs the same write scope, so it explains a 403 the same way."""
+        respx.post(
+            "https://api.bitbucket.org/2.0/repositories/ws/my-api/pipelines/pipe-1/stopPipeline"
+        ).mock(return_value=Response(403))
+
+        with patch.dict(os.environ, _env(), clear=True):
+            server._client = None
+            try:
+                with pytest.raises(ToolError, match="write:pipeline:bitbucket"):
+                    await bitbucket_stop_pipeline.fn(repo_slug="my-api", pipeline_uuid="pipe-1")
+            finally:
+                server._client = None
+
+    @respx.mock
+    async def test_non_403_errors_are_not_rewritten(self) -> None:
+        """Only 403 gets the scope explanation - a 500 must keep its own error."""
+        respx.post("https://api.bitbucket.org/2.0/repositories/ws/my-api/pipelines/").mock(
+            return_value=Response(500)
+        )
+
+        with patch.dict(os.environ, _env(BITBUCKET_ALLOW_PIPELINE_TRIGGER="true"), clear=True):
+            server._client = None
+            try:
+                with pytest.raises(httpx.HTTPStatusError):
+                    await bitbucket_trigger_pipeline.fn(repo_slug="my-api", ref_name="main")
+            finally:
+                server._client = None
+
+    @respx.mock
+    async def test_trigger_maps_variables_to_api_shape(self) -> None:
+        """The tool's key/value dict becomes the API's list form, always unsecured."""
+        route = respx.post("https://api.bitbucket.org/2.0/repositories/ws/my-api/pipelines/").mock(
+            return_value=Response(201, json={"uuid": "{p11}", "build_number": 44})
+        )
+
+        with patch.dict(os.environ, _env(BITBUCKET_ALLOW_PIPELINE_TRIGGER="true"), clear=True):
+            server._client = None
+            try:
+                await bitbucket_trigger_pipeline.fn(
+                    repo_slug="my-api",
+                    ref_name="main",
+                    variables={"ENV": "staging", "REGION": "eu"},
+                )
+            finally:
+                server._client = None
+
+        body = json.loads(route.calls.last.request.content)
+        assert body["variables"] == [
+            {"key": "ENV", "value": "staging", "secured": False},
+            {"key": "REGION", "value": "eu", "secured": False},
+        ]
