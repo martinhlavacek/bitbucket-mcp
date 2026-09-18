@@ -13,6 +13,7 @@ MCP (Model Context Protocol) server for Bitbucket Cloud API. Enables AI assistan
 - 📁 **Repositories** - Get repository information
 - 🔍 **Diffs** - View PR diffs and changes
 - 💬 **Comments** - Add and list PR comments
+- 🚦 **Pipelines** - Read run status and logs; trigger and stop runs (opt-in)
 
 ## Installation
 
@@ -177,6 +178,63 @@ docker run -d -p 8000:8000 \
 | `bitbucket_get_pipeline_step_log` | Get a pipeline step's log (last 200 lines by default) |
 | `bitbucket_list_pipelines` | List recent pipelines, optionally filtered by branch |
 | `bitbucket_get_pipeline` | Get a pipeline with its per-step breakdown |
+| `bitbucket_trigger_pipeline` | Trigger a pipeline run (opt-in, see below) |
+| `bitbucket_stop_pipeline` | Signal a running pipeline to stop |
+
+### Pipeline write operations
+
+Triggering a pipeline is the one operation here that can spend build minutes and deploy to
+an environment, so it is off by default and gated by two independent settings.
+
+```bash
+export BITBUCKET_ALLOW_PIPELINE_TRIGGER="true"
+export BITBUCKET_PIPELINE_ALLOWLIST="my-api:ci,my-api:preview,web:ci"
+export BITBUCKET_ALLOW_PIPELINE_STOP="true"   # this is the default
+```
+
+| Variable | Default | Answers |
+| --- | --- | --- |
+| `BITBUCKET_ALLOW_PIPELINE_TRIGGER` | `false` | May pipelines be triggered at all? |
+| `BITBUCKET_PIPELINE_ALLOWLIST` | empty | Which custom pipelines may be triggered? |
+| `BITBUCKET_ALLOW_PIPELINE_STOP` | `true` | May a running pipeline be stopped? |
+
+The allowlist is scoped per repository (`repo-slug:pipeline-name`) because one server
+instance serves every repository - a bare pipeline name would let a `deploy` allowed for a
+staging repo also run the production `deploy` of another one. An empty allowlist means *no*
+custom pipeline may run, not every one.
+
+Running a branch's **default** pipeline needs no allowlist entry: it runs what a push to
+that branch would have run anyway, so it cannot deploy anything a push could not.
+
+> **Token scope:** these two tools need `write:pipeline:bitbucket`. It does **not** imply
+> `read:pipeline:bitbucket`, which the read-only pipeline tools already use, so add it to
+> your API token rather than swapping the existing scope.
+
+#### Where to set these
+
+The settings are read from the environment of the **server process**, so they belong wherever
+that process is started - not in the client that connects to it.
+
+Running the server over HTTP (Docker, shared host) rather than stdio, the client config holds
+only a URL and no environment at all; the variables go on the host running the container:
+
+```yaml
+# docker-compose.yml on the server
+services:
+  bitbucket-mcp:
+    image: hlavaceklab/bitbucket-mcp:latest
+    environment:
+      - BITBUCKET_ALLOW_PIPELINE_TRIGGER=true
+      - BITBUCKET_PIPELINE_ALLOWLIST=my-api:ci,web:preview
+```
+
+```bash
+docker compose up -d   # a restart is required; the config is read from the process env
+```
+
+> **A shared server means a shared allowlist.** One container serves every client that can
+> reach it, so enabling the trigger enables it for all of them, running under the token
+> configured on that host. There is no per-client or per-session scoping.
 
 ## Development
 

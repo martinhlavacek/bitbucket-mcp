@@ -1,5 +1,8 @@
 """Tests for Bitbucket API client."""
 
+import json
+
+import httpx
 import pytest
 import respx
 from httpx import Response
@@ -249,3 +252,108 @@ class TestBitbucketClient:
         assert "FAILED test_foo" in result
         # The log endpoint rejects an ``Accept: text/plain`` header with 406.
         assert route.calls.last.request.headers["accept"] == "*/*"
+
+
+class TestPipelineWrites:
+    """Tests for the pipeline trigger and stop client methods."""
+
+    PIPELINES_URL = "https://api.bitbucket.org/2.0/repositories/testworkspace/test-repo/pipelines/"
+
+    @respx.mock
+    async def test_trigger_default_pipeline_omits_selector(self, client: BitbucketClient) -> None:
+        """The default pipeline is expressed by leaving ``selector`` out entirely."""
+        route = respx.post(self.PIPELINES_URL).mock(
+            return_value=Response(201, json={"uuid": "{p1}", "build_number": 3})
+        )
+
+        result = await client.trigger_pipeline("testworkspace", "test-repo", "main")
+
+        body = json.loads(route.calls.last.request.content)
+        assert "selector" not in body["target"]
+        assert body["target"] == {
+            "type": "pipeline_ref_target",
+            "ref_type": "branch",
+            "ref_name": "main",
+        }
+        assert "variables" not in body
+        assert result["build_number"] == 3
+
+    @respx.mock
+    async def test_trigger_custom_pipeline_sends_selector(self, client: BitbucketClient) -> None:
+        """A custom pipeline is sent as a custom selector on the ref target."""
+        route = respx.post(self.PIPELINES_URL).mock(
+            return_value=Response(201, json={"uuid": "{p2}", "build_number": 7})
+        )
+
+        result = await client.trigger_pipeline(
+            "testworkspace", "test-repo", "release", selector="prod-deploy"
+        )
+
+        body = json.loads(route.calls.last.request.content)
+        assert body["target"]["selector"] == {"type": "custom", "pattern": "prod-deploy"}
+        assert body["target"]["ref_name"] == "release"
+        assert result["uuid"] == "{p2}"
+
+    @respx.mock
+    async def test_trigger_sends_variables(self, client: BitbucketClient) -> None:
+        """Variables are forwarded as the API's list-of-objects form."""
+        route = respx.post(self.PIPELINES_URL).mock(
+            return_value=Response(201, json={"uuid": "{p3}", "build_number": 8})
+        )
+
+        await client.trigger_pipeline(
+            "testworkspace",
+            "test-repo",
+            "main",
+            variables=[{"key": "ENV", "value": "staging", "secured": False}],
+        )
+
+        body = json.loads(route.calls.last.request.content)
+        assert body["variables"] == [{"key": "ENV", "value": "staging", "secured": False}]
+
+    @respx.mock
+    async def test_trigger_rejects_secured_variable(self, client: BitbucketClient) -> None:
+        """Secured variables must not travel through the MCP server."""
+        route = respx.post(self.PIPELINES_URL).mock(return_value=Response(201, json={}))
+
+        with pytest.raises(ValueError, match="secured"):
+            await client.trigger_pipeline(
+                "testworkspace",
+                "test-repo",
+                "main",
+                variables=[{"key": "TOKEN", "value": "x", "secured": True}],
+            )
+
+        assert not route.called
+
+    @respx.mock
+    async def test_trigger_ref_type_is_forwarded(self, client: BitbucketClient) -> None:
+        """A tag target is passed through unchanged."""
+        route = respx.post(self.PIPELINES_URL).mock(
+            return_value=Response(201, json={"uuid": "{p4}"})
+        )
+
+        await client.trigger_pipeline("testworkspace", "test-repo", "v1.2.0", ref_type="tag")
+
+        body = json.loads(route.calls.last.request.content)
+        assert body["target"]["ref_type"] == "tag"
+
+    @respx.mock
+    async def test_stop_pipeline_handles_empty_204_body(self, client: BitbucketClient) -> None:
+        """Bitbucket answers 204 with no body - decoding it as JSON would raise."""
+        route = respx.post(f"{self.PIPELINES_URL}pipe-1/stopPipeline").mock(
+            return_value=Response(204)
+        )
+
+        result = await client.stop_pipeline("testworkspace", "test-repo", "pipe-1")
+
+        assert result is None
+        assert route.called
+
+    @respx.mock
+    async def test_stop_pipeline_raises_on_error(self, client: BitbucketClient) -> None:
+        """A refused stop surfaces as an HTTP error rather than passing silently."""
+        respx.post(f"{self.PIPELINES_URL}pipe-1/stopPipeline").mock(return_value=Response(403))
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.stop_pipeline("testworkspace", "test-repo", "pipe-1")

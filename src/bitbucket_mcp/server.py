@@ -2,8 +2,9 @@
 
 import time
 from datetime import datetime, timezone
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
+import httpx
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import Field
@@ -26,11 +27,16 @@ Available operations:
 - Branches: list repository branches
 - Repositories: get repository information
 - Diffs: view pull request changes
+- Pipelines: read status and logs; trigger and stop runs (opt-in, see below)
 
 Required environment variables:
 - BITBUCKET_EMAIL: Your Bitbucket email
 - BITBUCKET_API_TOKEN: Bitbucket API Token with repository and PR permissions
 - BITBUCKET_WORKSPACE: (optional) Default workspace
+- BITBUCKET_ALLOW_PIPELINE_TRIGGER: (optional) Set to true to allow triggering pipelines
+- BITBUCKET_PIPELINE_ALLOWLIST: (optional) Custom pipelines that may be triggered,
+  as comma-separated 'repo-slug:pipeline-name' entries
+- BITBUCKET_ALLOW_PIPELINE_STOP: (optional) Set to false to forbid stopping pipelines
 """,
 )
 
@@ -585,3 +591,156 @@ async def bitbucket_get_pipeline(
     steps_res = await client.list_pipeline_steps(ws, repo_slug, pipeline_uuid)
     steps = steps_res.get("values") or []
     return _summarize_pipeline(pipeline, steps)
+
+
+# =============================================================================
+# Pipeline write guardrails
+# =============================================================================
+
+
+def _require_trigger_allowed(repo_slug: str, pipeline: str | None) -> None:
+    """Raise unless triggering ``pipeline`` on ``repo_slug`` is permitted.
+
+    Two independent gates: the global opt-in decides whether the agent may trigger
+    anything at all, the scoped allowlist decides which custom pipelines. The default
+    pipeline needs no allowlist entry - it is what a push to the branch would run
+    anyway, so it cannot deploy anything a push could not.
+    """
+    config = BitbucketConfig.from_env()
+
+    if not config.allow_pipeline_trigger:
+        raise ToolError(
+            "pipeline trigger is disabled - set BITBUCKET_ALLOW_PIPELINE_TRIGGER=true "
+            "in the MCP server environment to enable it"
+        )
+
+    if pipeline is None:
+        return
+
+    if not config.is_pipeline_allowed(repo_slug, pipeline):
+        allowed = config.allowed_pipelines_for(repo_slug)
+        allowed_text = ", ".join(allowed) if allowed else "(none)"
+        raise ToolError(
+            f"custom pipeline '{pipeline}' is not allowed for repository '{repo_slug}' - "
+            f"allowed for this repository: {allowed_text}. "
+            "Entries go into BITBUCKET_PIPELINE_ALLOWLIST as 'repo-slug:pipeline-name'."
+        )
+
+
+def _require_stop_allowed() -> None:
+    """Raise unless stopping pipelines is permitted."""
+    if not BitbucketConfig.from_env().allow_pipeline_stop:
+        raise ToolError(
+            "stopping pipelines is disabled - set BITBUCKET_ALLOW_PIPELINE_STOP=true "
+            "in the MCP server environment to enable it"
+        )
+
+
+def _pipeline_scope_error(exc: httpx.HTTPStatusError) -> ToolError | None:
+    """Translate a 403 into a message naming the scope the token is missing.
+
+    Bitbucket answers a bare 403 when the token lacks the write scope, which reads
+    like a permission problem on the repository rather than a token configuration one.
+    Shared by both write tools on purpose - the same scope covers start and stop.
+    """
+    if exc.response.status_code != 403:
+        return None
+    return ToolError(
+        "Bitbucket refused the request (403) - the API token is most likely missing the "
+        "'write:pipeline:bitbucket' scope. Note it does not come with "
+        "'read:pipeline:bitbucket', so it has to be added, not swapped."
+    )
+
+
+@mcp.tool(
+    tags={"pipeline"},
+    annotations={"readOnlyHint": False, "destructiveHint": True},
+)
+async def bitbucket_trigger_pipeline(
+    repo_slug: Annotated[str, Field(description="Repository slug")],
+    ref_name: Annotated[str, Field(description="Branch (or tag) to run the pipeline on")],
+    workspace: Annotated[str | None, Field(description="Workspace slug")] = None,
+    pipeline: Annotated[
+        str | None,
+        Field(description="Custom pipeline name; omit to run the branch's default pipeline"),
+    ] = None,
+    ref_type: Annotated[Literal["branch", "tag"], Field(description="Ref type")] = "branch",
+    variables: Annotated[
+        dict[str, str] | None,
+        Field(description="Pipeline variables as key/value pairs (never secured)"),
+    ] = None,
+) -> dict[str, Any]:
+    """Trigger a pipeline run, the equivalent of the "Run pipeline" dialog in the UI.
+
+    Returns as soon as Bitbucket accepts the run - it does not wait for the pipeline to
+    finish; poll ``bitbucket_get_pipeline`` with the returned uuid for that. Requires
+    BITBUCKET_ALLOW_PIPELINE_TRIGGER, and a custom pipeline additionally requires a
+    matching 'repo-slug:pipeline-name' entry in BITBUCKET_PIPELINE_ALLOWLIST.
+    """
+    _require_trigger_allowed(repo_slug, pipeline)
+
+    client = get_client()
+    ws = get_workspace(workspace)
+
+    # dict[str, str] makes a secured variable unrepresentable at the tool boundary -
+    # the ValueError in the client is defense-in-depth for direct callers, not a path
+    # an MCP client can reach.
+    payload_variables = (
+        [{"key": key, "value": value, "secured": False} for key, value in variables.items()]
+        if variables
+        else None
+    )
+
+    try:
+        created = await client.trigger_pipeline(
+            ws,
+            repo_slug,
+            ref_name,
+            ref_type=ref_type,
+            selector=pipeline,
+            variables=payload_variables,
+        )
+    except httpx.HTTPStatusError as exc:
+        scope_error = _pipeline_scope_error(exc)
+        if scope_error:
+            raise scope_error from exc
+        raise
+
+    return {
+        "uuid": created.get("uuid"),
+        "build_number": created.get("build_number"),
+        "state": (created.get("state") or {}).get("name"),
+        "repo_slug": repo_slug,
+        "ref_name": ref_name,
+        "pipeline": pipeline or "(default)",
+    }
+
+
+@mcp.tool(
+    tags={"pipeline"},
+    annotations={"readOnlyHint": False, "destructiveHint": True},
+)
+async def bitbucket_stop_pipeline(
+    repo_slug: Annotated[str, Field(description="Repository slug")],
+    pipeline_uuid: Annotated[str, Field(description="Pipeline UUID (e.g. '{abc-123}')")],
+    workspace: Annotated[str | None, Field(description="Workspace slug")] = None,
+) -> dict[str, Any]:
+    """Signal a running pipeline to stop.
+
+    Enabled by default (BITBUCKET_ALLOW_PIPELINE_STOP) and independent of the trigger
+    opt-in: stopping a runaway build is far less consequential than starting one.
+    """
+    _require_stop_allowed()
+
+    client = get_client()
+    ws = get_workspace(workspace)
+
+    try:
+        await client.stop_pipeline(ws, repo_slug, pipeline_uuid)
+    except httpx.HTTPStatusError as exc:
+        scope_error = _pipeline_scope_error(exc)
+        if scope_error:
+            raise scope_error from exc
+        raise
+
+    return {"pipeline_uuid": pipeline_uuid, "stopped": True}
