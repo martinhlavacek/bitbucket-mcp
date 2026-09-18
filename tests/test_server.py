@@ -2,6 +2,7 @@
 
 import json
 import os
+from typing import Any
 from unittest.mock import patch
 
 import httpx
@@ -235,6 +236,16 @@ CREDS = {
 }
 
 
+def _tool_fn(tool: Any) -> Any:
+    """Return the undecorated coroutine behind an MCP tool.
+
+    FastMCP 2.x wraps it in a FunctionTool exposing ``.fn``, while 4.x registers the
+    tool and hands the plain function back. The project allows both (fastmcp>=2.0.0),
+    so the tests must not depend on which one is installed.
+    """
+    return getattr(tool, "fn", tool)
+
+
 def _env(**extra: str) -> dict[str, str]:
     """Build an environment with credentials plus ``extra``.
 
@@ -363,7 +374,7 @@ class TestPipelineWriteTools:
         with patch.dict(os.environ, env, clear=True):
             server._client = None
             try:
-                result = await bitbucket_trigger_pipeline.fn(
+                result = await _tool_fn(bitbucket_trigger_pipeline)(
                     repo_slug="my-api", ref_name="main", pipeline="ci"
                 )
             finally:
@@ -388,7 +399,9 @@ class TestPipelineWriteTools:
         with patch.dict(os.environ, _env(BITBUCKET_ALLOW_PIPELINE_TRIGGER="true"), clear=True):
             server._client = None
             try:
-                result = await bitbucket_trigger_pipeline.fn(repo_slug="my-api", ref_name="main")
+                result = await _tool_fn(bitbucket_trigger_pipeline)(
+                    repo_slug="my-api", ref_name="main"
+                )
             finally:
                 server._client = None
 
@@ -406,7 +419,7 @@ class TestPipelineWriteTools:
             server._client = None
             try:
                 with pytest.raises(ToolError, match="write:pipeline:bitbucket"):
-                    await bitbucket_trigger_pipeline.fn(repo_slug="my-api", ref_name="main")
+                    await _tool_fn(bitbucket_trigger_pipeline)(repo_slug="my-api", ref_name="main")
             finally:
                 server._client = None
 
@@ -420,7 +433,7 @@ class TestPipelineWriteTools:
         with patch.dict(os.environ, _env(), clear=True):
             server._client = None
             try:
-                result = await bitbucket_stop_pipeline.fn(
+                result = await _tool_fn(bitbucket_stop_pipeline)(
                     repo_slug="my-api", pipeline_uuid="pipe-1"
                 )
             finally:
@@ -439,7 +452,9 @@ class TestPipelineWriteTools:
             server._client = None
             try:
                 with pytest.raises(ToolError, match="write:pipeline:bitbucket"):
-                    await bitbucket_stop_pipeline.fn(repo_slug="my-api", pipeline_uuid="pipe-1")
+                    await _tool_fn(bitbucket_stop_pipeline)(
+                        repo_slug="my-api", pipeline_uuid="pipe-1"
+                    )
             finally:
                 server._client = None
 
@@ -454,7 +469,7 @@ class TestPipelineWriteTools:
             server._client = None
             try:
                 with pytest.raises(httpx.HTTPStatusError):
-                    await bitbucket_trigger_pipeline.fn(repo_slug="my-api", ref_name="main")
+                    await _tool_fn(bitbucket_trigger_pipeline)(repo_slug="my-api", ref_name="main")
             finally:
                 server._client = None
 
@@ -468,7 +483,7 @@ class TestPipelineWriteTools:
         with patch.dict(os.environ, _env(BITBUCKET_ALLOW_PIPELINE_TRIGGER="true"), clear=True):
             server._client = None
             try:
-                await bitbucket_trigger_pipeline.fn(
+                await _tool_fn(bitbucket_trigger_pipeline)(
                     repo_slug="my-api",
                     ref_name="main",
                     variables={"ENV": "staging", "REGION": "eu"},
